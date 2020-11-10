@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS  
     PoSH-Tacocat is a set of Windows Management Instrumentation interface (WMI) scripts that investigators and forensic analysts can use to retrieve information from a 
     compromised (or potentially compromised) Windows system. The scripts use WMI to pull this information from the operating system. Therefore, this script 
@@ -35,9 +35,8 @@
     Updated        : @Putztech
     Prerequisite   : PowerShell
     Created        : 10 Oct 16
-    Modified       : 09 Oct 18
+    Modified       : 10 Nov 20
 #>
-
 
 # ==============================================================================
 # Function Name 'ListComputers' - Takes entered domain and lists all computers
@@ -454,14 +453,14 @@ If($strResponse -eq "1"){. ListComputers | Sort-Object}
 	Please run script again."; Pause -foregroundColor Red}	
 }
 
-# Fcuntion to select what data user wants to enumerate from selected computers.
+# Function to select what data user wants to enumerate from selected computers.
 Function Right_Meow
 {			
-While ($strResponse2 -ne 21)
+While ($strResponse2 -ne 22)
     {
         Write-Host ""
         Write-Host "Which function would you like to run?" -ForegroundColor Yellow
-        $strResponse2 = Read-Host "`n[1] All Functions `n[2] Autoruns `n[3] NetLogon `n[4] EventLogs (Disabled) `n[5] Drivers `n[6] Mapped Drives `n[7] Processes/Connections `n[8] DLLs/Hashes `n[9] Scheduled Tasks `n[10] Services `n[11] Environment Variables `n[12] Users `n[13] Groups `n[14] Logged on Users `n[15] Network Config `n[16] Shares `n[17] Disk Info `n[18] System Info `n[19] Installed Patches `n[20] Installed Software `n[21] Exit `n"
+        $strResponse2 = Read-Host "`n[1] All Functions `n[2] Autoruns `n[3] NetLogon `n[4] EventLogs (Disabled) `n[5] Drivers `n[6] Mapped Drives `n[7] Processes/Connections `n[8] DLLs/Hashes `n[9] Scheduled Tasks `n[10] Services `n[11] Environment Variables `n[12] Users `n[13] Groups `n[14] Logged on Users `n[15] Network Config `n[16] Shares `n[17] Disk Info `n[18] System Info `n[19] Installed Patches `n[20] Installed Software `n[21] MergeCSV `n[22] Exit `n"
         # Functions that are disabled are commented out in action 1 and also in the function.
         If($strResponse2 -eq "1"){Write-Host "Running All Functions..." (Get-Date) -ForegroundColor Yellow
                                   . Autoruns
@@ -483,6 +482,7 @@ While ($strResponse2 -ne 21)
                                     System_Info
                                     Patches
                                     Software
+                                    MergeCSV
 				 }
             elseif($strResponse2 -eq "2"){. Autoruns}
             elseif($strResponse2 -eq "3"){. Netlogon}
@@ -503,6 +503,7 @@ While ($strResponse2 -ne 21)
             elseif($strResponse2 -eq "18"){. System_Info}
             elseif($strResponse2 -eq "19"){. Patches}
             elseif($strResponse2 -eq "20"){. Software}
+            elseif($strResponse2 -eq "21"){. MergeCSV}
     }
 }
 
@@ -588,7 +589,7 @@ Remove-Item .\connects -Recurse -Force
 }
 
 # ==============================================================================
-# DLLs and Hashes
+# DLLs and Hashes  ****Still working out bugs, doesn't work on local machine****
 # ==============================================================================
 Function DLLs {
 mkdir .\DLLs | Out-Null
@@ -616,12 +617,11 @@ mkdir .\DLLs | Out-Null
     #Setting registy keys to allow for PS ExecutionPolicy change to allow DLLs.ps1 to exectute on remote computer
     Invoke-WmiMethod -Class Win32_Process -Name Create -ComputerName $computer -ArgumentList "PowerShell.exe /c Remove-Item -Path HKCU:\Software\Microsoft\PowerShell -Force" > $null 2>&1
     Invoke-WmiMethod -Class Win32_Process -Name Create -ComputerName $computer -ArgumentList "PowerShell.exe /c Set-ItemProperty -Path HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell -Name ExecutionPolicy -Value Unrestricted -Force" > $null 2>&1
-    #Invoke-WmiMethod -Class Win32_Process -Name Create -ComputerName $computer -ArgumentList "PowerShell.exe /c Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Force" > $null 2>&1
     Start-Sleep -Seconds 10
     Invoke-WmiMethod -Class Win32_Process -Name Create -ComputerName $computer -ArgumentList "PowerShell.exe /c c:\DLLs.ps1" > $null 2>&1
+    #ADD LOOP TO CHECK FOR FILE TO GET RID OF SLEEP!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     Start-Sleep -Seconds 45
     Invoke-WmiMethod -Class Win32_Process -Name Create -ComputerName $computer -ArgumentList "PowerShell.exe /c Set-ItemProperty -Path HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell -Name ExecutionPolicy -Value Restricted -Force" > $null 2>&1
-    #Invoke-WmiMethod -Class Win32_Process -Name Create -ComputerName $computer -ArgumentList "PowerShell.exe /c Set-ExecutionPolicy -ExecutionPolicy Restricted -Force" > $null 2>&1
     Copy-Item \\$computer\c$\$computer.csv .\
     Remove-Item \\$computer\c$\$computer.csv
     Remove-Item \\$computer\c$\DLLs.ps1
@@ -759,7 +759,7 @@ Copy-Item \\$computer\c$\$computer.csv .\
 Remove-Item \\$computer\c$\$computer.csv
 cd ..
     }
-# Combining CSV files into one file
+ # Combining CSV files into one file
     $getFirstLine = $True
     Get-ChildItem .\Software\*.csv | ForEach {
         $filePath = $_
@@ -773,4 +773,34 @@ cd ..
         }
     Remove-Item .\Software -Recurse -Force
 }
+
+# ==============================================================================
+# Merge CSVs
+# ==============================================================================
+
+Function MergeCSV 
+{
+  $csvs = Get-ChildItem .\* -Include *.csv
+  $y = $csvs.Count
+  Write-Host "Detected the following CSV files: ($y)"
+  Write-Host " "$csvs.Name"`n"
+  $outputfilename = "Merge Results"
+  Write-Host Creating: $outputfilename
+  $excelapp = New-Object -ComObject Excel.Application
+  $excelapp.SheetsInNewWorkbook = $csvs.Count
+  $xlsx = $excelapp.Workbooks.Add()
+  for($i=1;$i -le $y;$i++) {
+    $worksheet = $xlsx.Worksheets.Item($i)
+    $worksheet.Name = $csvs[$i-1].Name
+    $file = (Import-Csv $csvs[$i-1].FullName)
+    $file | ConvertTo-Csv -Delimiter "`t" -NoTypeInformation | Clip
+    $worksheet.Cells.Item(1).PasteSpecial()|out-null
+    }
+
+  $path = $(Get-Location).Path
+  $output = "$path\Merge_Results.xlsx"
+  $xlsx.SaveAs($output)
+  $excelapp.Quit()
+}
+
 Write-Host "Completed at..." (Get-Date) -ForegroundColor Yellow
